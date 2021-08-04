@@ -1,8 +1,106 @@
 const crypto = require('crypto');
 const EC = require('elliptic').ec;
 const ec = new EC('secp256k1');
-const { Transaction } = require('./transaction');
-const { Block } = require('./block');
+const debug = require('debug')('maocoin:blockchain');
+
+class Transaction {
+  /**
+   * @param {string} fromAddress
+   * @param {string} toAddress
+   * @param {number} amount
+   */
+  constructor(fromAddress, toAddress, amount) {
+    this.fromAddress = fromAddress;
+    this.toAddress = toAddress;
+    this.amount = amount;
+    this.timestamp = Date.now();
+  }
+
+  /**
+   * @returns {string}
+   */
+  calculateHash() {
+    return crypto.createHash('sha256').update(this.fromAddress + this.toAddress + this.amount + this.timestamp).digest('hex');
+  }
+
+  /**
+   * @param {string} signingKey
+   */
+  signTransaction(signingKey) {
+    if (signingKey.getPublic('hex') !== this.fromAddress) {
+      throw new Error('You cannot sign transactions for other wallets!');
+    }
+    
+    const hashTx = this.calculateHash();
+    const sig = signingKey.sign(hashTx, 'base64');
+
+    this.signature = sig.toDER('hex');
+  }
+
+  /**
+   * @returns {boolean}
+   */
+  isValid() {
+    if (this.fromAddress === null) return true;
+
+    if (!this.signature || this.signature.length === 0) {
+      throw new Error('No signature in this transaction');
+    }
+
+    const publicKey = ec.keyFromPublic(this.fromAddress, 'hex');
+    return publicKey.verify(this.calculateHash(), this.signature);
+  }
+}
+
+class Block {
+  /**
+   * @param {number} timestamp
+   * @param {Transaction[]} transactions
+   * @param {string} previousHash
+   */
+  constructor(timestamp, transactions, previousHash = '') {
+    this.previousHash = previousHash;
+    this.timestamp = timestamp;
+    this.transactions = transactions;
+    this.nonce = 0;
+    this.hash = this.calculateHash();
+  }
+
+  /**
+   * @returns {string}
+   */
+  calculateHash() {
+    return crypto.createHash('sha256').update(this.previousHash + this.timestamp + JSON.stringify(this.transactions) + this.nonce).digest('hex');
+  }
+
+  /**
+   * Starts the mining process on the block. It changes the 'nonce' until the hash
+   * of the block starts with enough zeros (= difficulty)
+   *
+   * @param {number} difficulty
+   */
+  mineBlock(difficulty) {
+    while (this.hash.substring(0, difficulty) !== Array(difficulty + 1).join('0')) {
+      this.nonce++;
+      this.hash = this.calculateHash();
+    }
+
+    debug(`Block mined: ${this.hash}`);
+  }
+
+  /**
+   * @returns {boolean}
+   */
+  hasValidTransactions() {
+    for (const tx of this.transactions) {
+      if (!tx.isValid()) {
+        return false;
+      }
+    }
+
+    return true;
+  }
+}
 
 class Blockchain {
   constructor() {
@@ -36,6 +134,7 @@ class Blockchain {
     const block = new Block(Date.now(), this.pendingTransactions, this.getLatestBlock().hash);
     block.mineBlock(this.difficulty);
 
+    debug('Block successfully mined!');
     this.chain.push(block);
 
     this.pendingTransactions = [];
@@ -49,6 +148,7 @@ class Blockchain {
       throw new Error('Transaction must include from and to address');
     }
 
+    // Verify the transactiion
     if (!transaction.isValid()) {
       throw new Error('Cannot add invalid transaction to chain');
     }
@@ -57,11 +157,13 @@ class Blockchain {
       throw new Error('Transaction amount should be higher than 0');
     }
     
+    // Making sure that the amount sent is not greater than existing balance
     if (this.getBalanceOfAddress(transaction.fromAddress) < transaction.amount) {
       throw new Error('Not enough balance');
     }
 
     this.pendingTransactions.push(transaction);
+    debug('transaction added: %s', transaction);
   }
 
   /**
@@ -83,6 +185,7 @@ class Blockchain {
       }
     }
 
+    debug('getBalanceOfAdrees: %s', balance);
     return balance;
   }
 
@@ -101,6 +204,7 @@ class Blockchain {
       }
     }
 
+    debug('get transactions for wallet count: %s', txs.length);
     return txs;
   }
 
@@ -136,3 +240,5 @@ class Blockchain {
 }
 
 module.exports.Blockchain = Blockchain;
+module.exports.Block = Block;
+module.exports.Transaction = Transaction;
