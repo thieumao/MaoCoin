@@ -1,0 +1,18 @@
+{
+  "name": "MaoCoin",
+  "version": "1.0.0",
+  "description": "Simple Blockchain implementation in Javascript. For educational purposes only.",
+  "keywords": [
+    "blockchain",
+    "transactions",
+    "education"
+  ],
+  "main": "src/blockchain.js",
+  "scripts": {
+    "test": "node src/index.js"
+  },
+  "dependencies": {
+    "elliptic": "^6.5.4"
+  },
+  "devDependencies": {}
+}
